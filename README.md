@@ -1,4 +1,4 @@
-orchestratr-node
+orchestratr
 ================
 
 Orchestratr NodeJS client

@@ -1,0 +1,42 @@
+{
+  "name": "orchestratr",
+  "version": "0.1.0",
+  "description": "Orchestratr NodeJS client",
+  "main": "index.js",
+  "scripts": {
+    "test": "mocha -R list test/*.js",
+    "TESTS.md": "mocha -R markdown test/*.js > TESTS.md"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://yieme@github.com/yieme/orchestratr.git"
+  },
+  "keywords": [
+    "orchestratr",
+    "node",
+    "nodejs",
+    "client"
+  ],
+  "author": "yieme",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/yieme/orchestratr/issues"
+  },
+  "homepage": "https://github.com/yieme/orchestratr",
+  "dependencies": {
+    "bunyan": "^1.2.3",
+    "bunyan-logentries": "^0.1.0",
+    "dias": "^0.5.4",
+    "envar": "^1.0.0",
+    "firebase": "^2.0.6",
+    "firebase-token-generator": "^2.0.0",
+    "fireproof": "^2.3.2",
+    "lodash": "^2.4.1"
+  },
+  "devDependencies": {
+    "grunt": "^0.4.5",
+    "grunt-bump": "0.0.16",
+    "mocha": "^2.1.0",
+    "should": "^4.4.2"
+  }
+}
