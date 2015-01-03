@@ -1,168 +1,167 @@
 "use strict";
 
 var scope          = this
+  , logger         = { fatal: console.log }
   , Firebase       = require('firebase')
-  , Fireproof      = require('fireproof')                // casetext/fireproof. basic firebase promises
   , TokenGenerator = require("firebase-token-generator")
   , envar          = require('envar')                    // alexindigo/node-envar. envar.prefix('my_app_'). envar.defaults({})
   , Dias           = require('dias')                     // angleman/dias. Detect PaaS details
-  , _              = require('lodash')
-  , bunyan         = require('bunyan')
-  , mergeArray     = _.partialRight(_.assign, function(a, b) { return typeof a == 'undefined' ? b : a; })
-  , appPack        = require('./package.json')
-  , isProduction   = envar('NODE_ENV') == 'production' && !envar('DEBUG')
-  , noop           = function(){}
+  , mergeObjects   = require('./src/merge-objects')
+  , fs             = require('fs')
+  , os             = require('os')
+  , appPack        = (fs.existsSync('../../package.json')) ? require('../../package.json') : require('./package.json')
+//  , Fireproof      = require('fireproof')
+//  , Q              = require('q')                        // kriskowal/q
+  , Firelease      = require('firelease')
+  , Firestore      = require('./src/firestore')
   , defaults       = {
       firebase:  envar('firebase') && JSON.parse(envar('firebase')) || {},
       package:   envar('package')  && JSON.parse(envar('package'))  || appPack,
       logger:    envar('logger')   && JSON.parse(envar('logger'))   || {},
     }
-  , logger         = {}
-  , config         = {}
-  , tokenGenerator
-  , TOKEN_TTL      = 60 * 60 * 24 * 365 * 100 // ~100 years
-  , firebaseRef
-  , orchestratrRef = []
-  , refs           = ['_', 'kv', 'pub', 'say', 'service', 'use', 'config']
+  , FIREBASE_TOKEN_TTL = 60 * 60 * 24 * 365 * 100 // ~100 years
+  , fireproof
+  , orchestratr  = {}
+  , initLogger   = require('./src/service-logger')
+  , isExiting    = false
 ;
 
-function initRefs(callback) {
-  refs.forEach(function(ref) {
-    orchestratrRef[ref] = firebaseRef.child(ref)
-  })
-  logger.info('init')
-  callback()
-}
+// process.hrtime(time) // node up time in ns (nano). 1000ns = 1µs (micro). 1000µs = 1ms (milli). 1000ms = 1s (second)
 
-function init(options, callback) {
-  if (typeof options == 'function') {
-    callback = options
-    options = {}
+
+function exit(msg) {
+  if (isExiting) {
+    console.log(msg)
+    process.exit(500) // error during shutdown so halt
   }
-  options = options || {}
-  config  = mergeArray(options, defaults)
+  isExiting   = true
+  msg         = msg || 'end'
+  var isError = (msg instanceof Error)
+  if (isError) {
+    logger.fatal(msg)
+  } else {
+    logger.info(msg)
+  }
+  setTimeout( process.exit((isError) ? 500 : 0), 1000) // allow logger to finish
+}
+
+if (!envar('DEBUG')) process.on('uncaughtException', function(err) { exit(err) })
+
+
+
+function serviceId(dias, config, callback) {
+  config      = config || {}
+  config.id   = config.id || {}
+  var version = config.package.version
+    , name    = config.package.name
+    , id      = mergeObjects(config.id, {
+    uid:  999,
+    name: name,
+    ver:  version,
+    env:  (config.env)        ? config.env    : (envar('NODE_ENV')) ? envar('NODE_ENV')  : 'development', // dev, stage, canary, production
+    paas: (dias.os == 'OSX')  ? undefined     : dias.paas,
+    dc:   (dias.aws)          ? dias.aws.zone : (dias.appfog)       ? dias.appfog.center : (dias.os == 'OSX') ? 'local' : undefined,
+    os:   dias.os + '/' + dias.version,
+    sn:   dias.serial,
+    glot: 'node/' + dias.node, // polyglot, ie application language
+  })
+  id.uid = id.name + '.' + dias.serial + '.' + process.pid
+  orchestratr.id = id
+  callback(id)
+}
+
+
+
+function initFirebase(config, callback) {
+  config       = config || {}
+  if (!config.firebase || !config.firebase.url) throw new Error('Orchestratr: Missing firebase url')
+  var firebase = new Firebase(config.firebase.url)
+//  Fireproof.bless(Q)
+//  fireproof    = new Fireproof(firebase)
+//  fireproof.bless(Q)
+  if (config.firebase.secret) {
+    var tokenGenerator = new TokenGenerator(config.firebase.secret)
+      , authToken      = tokenGenerator.createToken({
+      uid:   config.package.name + '.' + dias.serial + '.' + dias.uid,
+      is:    config.package.name + '/' + config.package.version,
+      admin: true,
+      exp:   FIREBASE_TOKEN_TTL
+    })
+    firebase.authWithCustomToken(authToken function(err, authData) {
+      if (err) throw new Error('Orchestratr: Bad firebase token')
+      callback()
+    })
+  } else {
+    callback()
+  }
+}
+
+
+
+function init(config, callback) {
+  if (typeof config == 'function') {
+    callback = config
+    config   = {}
+  }
+  config = config || {}
+  mergeObjects(config, defaults)
   Dias({uanode: true}, function(dias) {
-    var logOptions = mergeArray(config.logger, {
-      name:  config.package.name,
-      ver:   config.package.version,
-      level: (isProduction) ? 'info' : 'debug',
-      paas: (dias.os == 'OSX') ? undefined : dias.paas,
-      zone: (dias.aws) ? dias.aws.zone : (dias.appfog) ? dias.appfog.center : (dias.os == 'OSX') ? 'local' : undefined
-    })
-    if (envar('DEBUG')) {
-      logOptions = mergeArray(logOptions, {
-        src:  true,
-        os:   dias.os + '/' + dias.version,
-        sn:   dias.serial,
-        code: 'node/' + dias.node,
+    serviceId(dias, config, function(id) {
+      logger = initLogger(config, id) // TODO: merge dias details to config
+      initFirebase(config, function() {
+        logger.info('init')
+        callback()
       })
-    }
-    if (logOptions.logEntries) {
-      logOptions.stream     = require('bunyan-logentries').createStream({token: logOptions.logEntries})
-      logOptions.logEntries = undefined
-    }
-
-    logger           = bunyan.createLogger(logOptions)
-    if (!config.firebase || !config.firebase.url) throw new Error('Missing orchestratr firebase url')
-    firebaseRef      = new Firebase(config.firebase.url)
-    if (config.firebase.secret) {
-      tokenGenerator = new TokenGenerator(config.firebase.secret)
-      AUTH_TOKEN     = tokenGenerator.createToken({uid: config.package.name + '.' + dias.serial + '.' + dias.uid, is: config.package.name + '/' + config.package.version, admin:true, exp: TOKEN_TTL})
-      firebaseRef.authWithCustomToken(AUTH_TOKEN, function(error, authData) {
-        if (error) {
-          throw new Error('Failed orchestratr firebase token')
-        } else {
-          initRefs(callback)
-        }
-      });
-    } else {
-      initRefs(callback)
-    }
-  })
-}
-
-
-function _get(key, callback) { // get orchestratr.kv key/value
-  orchestratrRef.kv.once(key, callback, function (err) {
-    if (err) throw err
-  })
-}
-
-
-function get(key, callback) { // get orchestratr.kv key/value
-  _get(key, function (dataSnapshot) {
-    callback(dataSnapshot.val())
-  })
-}
-function put(key, value) { // set orchestratr.kv key/value
-  _get(key, function (dataSnapshot) {
-    dataSnapshot.set(value, function (err) {
-      if (err) throw err
     })
   })
 }
 
-function remove(key) { // clear orchestratr.kv key/value
-  _get(key, function (dataSnapshot) {
-    dataSnapshot.remove(function (err) {
-      if (err) throw err
-    })
-  })
+
+
+function getFirebaseRefs(name, list) {
+  if (!orchestratr[name]) {
+    var refs = {}
+    for (var i=0; i < list.length; i++) {
+      var item = list[i]
+      var keyRef = (item.area) ? firebase.child(item.area) : firebase
+      if (item.scope) {
+        refs[item.scope] = new Firestore(keyRef.child(item.ref))
+      } else {
+        refs = new Firestore(keyRef)
+      }
+    }
+  }
+  orchestratr[name] = refs
+  return orchestratr[name]
 }
 
-function pub(msg, callback) { // publish an orchestratr.pub message
-}
-function sub(key, callback) { // subscribe to orchestratr.pub messages
-}
-function unsub(key, callback) { // stop subscription to orchestratr.pub messages
-}
 
 
-function discover(service, callback) { // discover service in orchestratr.service
-}
-function health(status) { // standard health update
-}
-function say(status, callback) { // say service status to orchestratr.say
-}
-function use(status, callback) { // service  to orchestratr.say
-}
+module.exports.keystore = function () {
+  return getFirebaseRefs('keystore', [
+  {                   area: '~', key: orchestratr.id.name }, // service common key/value store. root scope must be the first entry
+//  { scope: 'global',  area: '~'                           }, // all key/value store
+//  { scope: 'public',             key: '_'                 }, // public facing key/value store
+//  { scope: 'private', area: '?', key: orchestratr.id.uid  }  // private common key/value store
+])}
 
-function fail(err) {
-  logger.fatal(err)
-  process.exit(500)
-}
+module.exports.event = function () { return getFirebaseRefs('event', [
+  {                   area: '|', key: '_' }, // service common key/value store. root scope must be the first entry
+  { scope: 'global',  area: '|'           }, // all key/value stores
+  { scope: 'public',             key: '_' }  // public facing key/value store, firehose
+])}
 
-function terminate(msg) {
-  logger.info(msg)
-  process.exit(0)
-}
-
-process.on('uncaughtException', function(err) {
-  fail(err)
-})
-
-module.exports.init     = init
-
-module.exports.get      = get
-module.exports.put      = put;
-module.exports.remove   = remove;
-
-module.exports.pub      = pub;
-module.exports.sub      = sub;
-module.exports.unsub    = unsub;
-
-module.exports.discover = discover;
-module.exports.health   = health;
-module.exports.say      = say;
-module.exports.use      = use;
-
-module.exports.debug    = logger.debug;
-module.exports.info     = logger.info;
-module.exports.warn     = logger.warn;
-module.exports.error    = logger.error;
-module.exports.fatal    = logger.fatal;
+module.exports.health   = function () { return getFirebaseRefs('health',   [ ['global', 'g'], ['service', '$service'] ]) }
+module.exports.catalog  = function () { return getFirebaseRefs('catalog',  [ ['global', 'g'], ['service', '$service'], ['node', '$node'], , ['datacenter', '$datacenter'] ]) }
 
 
-init(function() {
-  terminate('done')
-});
+// lifecycle management
+module.exports.init  = init
+module.exports.ready = function ready(cb) {}
+module.exports.exit  = exit
+module.exports.log   = logger
+
+module.exports.pin   = function pin(event_name, options) {} // creates O.event_name() && O.eventName() // options = { timeout: 0, first: 1, do: remoteService } || function(){} // do: shortcut
+
+
+// O.attachWorker.service/global(key, options, worker) -> fireleaseRef
