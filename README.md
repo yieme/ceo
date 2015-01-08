@@ -1,4 +1,3 @@
-orchestratr
-================
+# CEO
 
-Orchestratr NodeJS client
+CEO NodeJS client
