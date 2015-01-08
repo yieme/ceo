@@ -1,0 +1,19 @@
+{
+  "name": "service-logger",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "yieme",
+  "license": "MIT",
+  "dependencies": {
+    "winston": "^0.8.3",
+    "winston-logentries-transport": "0.0.1",
+    "winston-loggly": "^1.0.2",
+    "winston-mongodb": "^0.5.3",
+    "winston-riak": "^0.3.2",
+    "winston-simpledb": "^0.1.2"
+  }
+}

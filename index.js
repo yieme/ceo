@@ -1,150 +1,119 @@
 "use strict";
 
 var scope          = this
-  , logger         = { fatal: console.log }
+  , logger         = { info: console.log, warn: console.log, error: console.log, fatal: console.log }
   , Firebase       = require('firebase')
   , TokenGenerator = require("firebase-token-generator")
-  , envar          = require('envar')                    // alexindigo/node-envar. envar.prefix('my_app_'). envar.defaults({})
   , Dias           = require('dias')                     // angleman/dias. Detect PaaS details
   , mergeObjects   = require('./src/merge-objects')
   , fs             = require('fs')
   , os             = require('os')
-  , appPack        = (fs.existsSync('../../package.json')) ? require('../../package.json') : require('./package.json')
-//  , Fireproof      = require('fireproof')
-//  , Q              = require('q')                        // kriskowal/q
+  , exit           = require('./src/service-exit')
+  , outcome        = require('outcome')
+  , on             = outcome(function(err) { exit(err) })
+  , getvar         = require('./src/getvar')
   , Firelease      = require('firelease')
   , Firestore      = require('./src/firestore')
-  , defaults       = {
-      firebase:  envar('firebase') && JSON.parse(envar('firebase')) || {},
-      package:   envar('package')  && JSON.parse(envar('package'))  || appPack,
-      logger:    envar('logger')   && JSON.parse(envar('logger'))   || {},
-    }
-  , FIREBASE_TOKEN_TTL = 60 * 60 * 24 * 365 * 100 // ~100 years
-  , fireproof
-  , orchestratr  = {}
-  , initLogger   = require('./src/service-logger')
-  , isExiting    = false
+  , initLogger     = require('./src/service-logger')
+  , config         = getvar('orchestratr') || '{}'
 ;
 
-// process.hrtime(time) // node up time in ns (nano). 1000ns = 1µs (micro). 1000µs = 1ms (milli). 1000ms = 1s (second)
+try { config = JSON.parse(config) } catch (e) {}
 
 
-function exit(msg) {
-  if (isExiting) {
-    console.log(msg)
-    process.exit(500) // error during shutdown so halt
-  }
-  isExiting   = true
-  msg         = msg || 'end'
-  var isError = (msg instanceof Error)
-  if (isError) {
-    logger.fatal(msg)
-  } else {
-    logger.info(msg)
-  }
-  setTimeout( process.exit((isError) ? 500 : 0), 1000) // allow logger to finish
-}
-
-if (!envar('DEBUG')) process.on('uncaughtException', function(err) { exit(err) })
-
-
-
-function serviceId(dias, config, callback) {
-  config      = config || {}
-  config.id   = config.id || {}
-  var version = config.package.version
-    , name    = config.package.name
-    , id      = mergeObjects(config.id, {
-    uid:  999,
-    name: name,
-    ver:  version,
-    env:  (config.env)        ? config.env    : (envar('NODE_ENV')) ? envar('NODE_ENV')  : 'development', // dev, stage, canary, production
-    paas: (dias.os == 'OSX')  ? undefined     : dias.paas,
-    dc:   (dias.aws)          ? dias.aws.zone : (dias.appfog)       ? dias.appfog.center : (dias.os == 'OSX') ? 'local' : undefined,
-    os:   dias.os + '/' + dias.version,
-    sn:   dias.serial,
-    glot: 'node/' + dias.node, // polyglot, ie application language
-  })
-  id.uid = id.name + '.' + dias.serial + '.' + process.pid
-  orchestratr.id = id
-  callback(id)
-}
-
-
-
-function initFirebase(config, callback) {
-  config       = config || {}
-  if (!config.firebase || !config.firebase.url) throw new Error('Orchestratr: Missing firebase url')
-  var firebase = new Firebase(config.firebase.url)
-//  Fireproof.bless(Q)
-//  fireproof    = new Fireproof(firebase)
-//  fireproof.bless(Q)
-  if (config.firebase.secret) {
-    var tokenGenerator = new TokenGenerator(config.firebase.secret)
-      , authToken      = tokenGenerator.createToken({
-      uid:   config.package.name + '.' + dias.serial + '.' + dias.uid,
-      is:    config.package.name + '/' + config.package.version,
-      admin: true,
-      exp:   FIREBASE_TOKEN_TTL
-    })
-    firebase.authWithCustomToken(authToken function(err, authData) {
-      if (err) throw new Error('Orchestratr: Bad firebase token')
-      callback()
-    })
-  } else {
-    callback()
-  }
-}
-
-
-
-function init(config, callback) {
-  if (typeof config == 'function') {
-    callback = config
-    config   = {}
-  }
-  config = config || {}
-  mergeObjects(config, defaults)
-  Dias({uanode: true}, function(dias) {
-    serviceId(dias, config, function(id) {
-      logger = initLogger(config, id) // TODO: merge dias details to config
-      initFirebase(config, function() {
-        logger.info('init')
-        callback()
-      })
-    })
-  })
-}
-
-
-
-function getFirebaseRefs(name, list) {
-  if (!orchestratr[name]) {
-    var refs = {}
-    for (var i=0; i < list.length; i++) {
-      var item = list[i]
-      var keyRef = (item.area) ? firebase.child(item.area) : firebase
-      if (item.scope) {
-        refs[item.scope] = new Firestore(keyRef.child(item.ref))
-      } else {
-        refs = new Firestore(keyRef)
-      }
+function getServiceId(dias, callback) {
+  try {
+    var idPack = {
+      uid:  999,  // replace below
+      name: getvar.package.name,
+      ver:  getvar.package.version,
+      env:  getvar.node_env(), // dev, stage, canary, production
+      paas: (dias.os == 'OSX')  ? undefined     : dias.paas,
+      dc:   (dias.aws)          ? dias.aws.zone : (dias.appfog)       ? dias.appfog.center : (dias.os == 'OSX') ? 'local' : undefined,
+      os:   dias.os + '/' + dias.version,
+      box:  getvar('box') || dias.serial,
+      glot: 'node/' + dias.node, // polyglot, ie application language
     }
+    idPack.uid = getvar.package.name + ':' + dias.serial + ':' + process.pid
+    idPack.uid = idPack.uid.split('.').join('-')
+  } catch (err) {
+    callback(err)
   }
-  orchestratr[name] = refs
-  return orchestratr[name]
+  callback(null, idPack)
 }
 
 
 
-module.exports.keystore = function () {
-  return getFirebaseRefs('keystore', [
-  {                   area: '~', key: orchestratr.id.name }, // service common key/value store. root scope must be the first entry
-//  { scope: 'global',  area: '~'                           }, // all key/value store
-//  { scope: 'public',             key: '_'                 }, // public facing key/value store
-//  { scope: 'private', area: '?', key: orchestratr.id.uid  }  // private common key/value store
-])}
+function initFirebase(servicePack, callback) {
+  var firebase  = new Firebase(getvar('firebase_url', 1))
+  var token     = getvar('firebase_token')
+  , authToken = token
+  if (token) {
+    console.log('box:', servicePack.box)
+    var tokenGenerator = new TokenGenerator(token)
+    , authToken      = tokenGenerator.createToken({
+      uid:   servicePack.box,
+      is:    servicePack.name + '/' + servicePack.version // enables firebase auth based on service and/or version
+    })
+    firebase.authWithCustomToken(authToken, on.success(function(authData) {
+      callback(null, firebase)
+    }))
+  } else {
+    callback(null, firebase)
+  }
+}
 
+
+
+function getKeyValueStore(firebaseRef, path, callback) {
+  new Firestore({ ref: firebaseRef, child: path }, on.success(function(store) {
+    callback(null, store)
+  }))
+}
+
+
+
+function Orchestratr(callback) {
+  var orchestratr = this
+  , firebase
+  try {
+    Dias({uanode: true}, function(dias) {
+      getServiceId(dias, on.success(function(servicePack) {
+        var logger = new initLogger(servicePack)
+        exit.init(logger)
+        orchestratr.about = servicePack
+        orchestratr.log   = logger
+        orchestratr.exit  = exit
+
+        function multiStore(ref, area, key, callback) {
+          getKeyValueStore(ref, key, on.success(function(store) { orchestratr[area] = store }))
+        }
+
+        initFirebase(servicePack, on.success(function(ref) {
+          firebase = ref
+          var uid   = servicePack.uid.split(':')
+          uid
+          var setup = [
+            { area: 'public',  key: '_' },
+            { area: 'global',  key: '~' }, // all services
+            { area: 'kv',      key: '~/' + servicePack.name }, // service scope
+            { area: 'private', key: '?/' + servicePack.name + '/' + uid[1] + ':' + uid[2]  },
+          ]
+          for (var i = 0; i < setup.length; i++) {
+            multiStore(ref, setup[i].area, setup[i].key, function() {})
+          }
+          if (!getvar('DEBUG')) process.on('uncaughtException', function(err) { exit(err) })
+          callback(null, orchestratr)
+        }))
+      }))
+    })
+  } catch (err) { callback(err) }
+}
+
+
+
+// process.hrtime([compare_time?]) // node up time in ns (nano). 1000ns = 1µs (micro). 1000µs = 1ms (milli). 1000ms = 1s (second)
+/*
 module.exports.event = function () { return getFirebaseRefs('event', [
   {                   area: '|', key: '_' }, // service common key/value store. root scope must be the first entry
   { scope: 'global',  area: '|'           }, // all key/value stores
@@ -153,15 +122,8 @@ module.exports.event = function () { return getFirebaseRefs('event', [
 
 module.exports.health   = function () { return getFirebaseRefs('health',   [ ['global', 'g'], ['service', '$service'] ]) }
 module.exports.catalog  = function () { return getFirebaseRefs('catalog',  [ ['global', 'g'], ['service', '$service'], ['node', '$node'], , ['datacenter', '$datacenter'] ]) }
-
-
-// lifecycle management
-module.exports.init  = init
-module.exports.ready = function ready(cb) {}
-module.exports.exit  = exit
-module.exports.log   = logger
-
-module.exports.pin   = function pin(event_name, options) {} // creates O.event_name() && O.eventName() // options = { timeout: 0, first: 1, do: remoteService } || function(){} // do: shortcut
-
-
+*/
+//module.exports.pin   = function pin(event_name, options) {} // creates O.event_name() && O.eventName() // options = { timeout: 0, first: 1, do: remoteService } || function(){} // do: shortcut
 // O.attachWorker.service/global(key, options, worker) -> fireleaseRef
+
+module.exports = Orchestratr

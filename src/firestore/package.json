@@ -1,0 +1,23 @@
+{
+  "name": "firestore",
+  "version": "1.0.0",
+  "description": "A callback and co enabled key/value store for Firebase",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "firebase",
+    "co",
+    "key",
+    "value",
+    "store"
+  ],
+  "author": "yieme",
+  "license": "MIT",
+  "dependencies": {
+    "firebase": "^2.0.6",
+    "firebase-token-generator": "^2.0.0",
+    "lodash": "^2.4.1"
+  }
+}

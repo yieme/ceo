@@ -1,0 +1,23 @@
+{
+  "name": "getvar",
+  "version": "1.0.0",
+  "description": "Get configuration value via default, config, environment variable, package, npm or cli with optional required error handling",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "config",
+    "env",
+    "environment",
+    "cli",
+    "package",
+    "default",
+    "envar"
+  ],
+  "author": "yieme",
+  "license": "MIT",
+  "dependencies": {
+    "envar": "^1.0.0"
+  }
+}

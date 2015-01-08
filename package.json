@@ -1,7 +1,7 @@
 {
-  "name": "orchestratr",
-  "version": "0.1.0",
-  "description": "Orchestratr NodeJS client",
+  "name": "ceo",
+  "version": "1.0.0",
+  "description": "CEO NodeJS client",
   "main": "index.js",
   "scripts": {
     "test": "mocha -R list test/*.js",
@@ -9,7 +9,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://yieme@github.com/yieme/orchestratr.git"
+    "url": "https://yieme@github.com/yieme/ceo.git"
   },
   "keywords": [
     "orchestratr",
@@ -20,21 +20,21 @@
   "author": "yieme",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/yieme/orchestratr/issues"
+    "url": "https://github.com/yieme/ceo/issues"
   },
-  "homepage": "https://github.com/yieme/orchestratr",
+  "homepage": "https://github.com/yieme/ceo",
   "dependencies": {
-    "bunyan": "^1.2.3",
-    "bunyan-logentries": "^0.1.0",
     "dias": "^0.5.4",
     "envar": "^1.0.0",
+    "exit": "^0.1.2",
     "firebase": "^2.0.6",
     "firebase-token-generator": "^2.0.0",
     "firelease": "^0.1.2",
-    "fireproof": "^2.3.2",
     "i64base": "^0.1.6",
+    "js-data": "^1.0.0-alpha.5-8",
+    "js-data-firebase": "^1.0.0-alpha.1",
     "lodash": "^2.4.1",
-    "q": "^1.1.2"
+    "outcome": "0.0.18"
   },
   "devDependencies": {
     "doxx": "^1.2.1",

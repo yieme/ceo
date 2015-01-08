@@ -1,45 +1,80 @@
-// firebase key/value store
-// todo:
-// - cache key snapshots
-// - add TTL
-
 "use strict";
+var _                      = require('lodash')
+  , Firebase               = require('firebase')
+  , FirebaseTokenGenerator = require('firebase-token-generator')
 
-function Firestore(ref) {
-  var Ref = ref
+function Firestore(options, callback) { // TODO: co upgrade
+  if(!_.isFunction(callback)) {
+    return _.partial(Firestore, options)
+  }
 
-  function get(key, callback) { // get orchestratr.kv key/value
-    Ref.once(key).then(function(snap) {
+  var firestore = this
+  function complete() {
+    callback(null, firestore)
+  }
+
+  options = options || {}
+  var Ref = options.ref || (options.url && new Firebase(options.url)) || false
+  if (!Ref) {
+    callback(new Error("Firestore: ref or url required"))
+    return
+  }
+
+  if (options.child) {
+    Ref = Ref.child(options.child)
+  } else {
+    var path = '/' + Ref.toString().split('.com/')[1]
+    Ref = Ref.root().child(path)  // generate new firebase reference
+  }
+
+  firestore.get = function (key, callback) { // get key value
+    if(!_.isFunction(callback)) {
+      return _.partial(Firestore.get, key)
+    }
+
+    var ref = Ref.child(key)
+    ref.once('value', function (snap) {
       var val = snap.val()
-      callback(val)
-    })
+      callback(null, val)
+    }, callback);
   }
 
-  function put(key, value) { // set orchestratr.kv key/value
-    console.log('put:', key, value)
-    Ref.once(key).then(function(snap) {
-      console.log('snap:', snap, key, value)
-      snap.set(value, function (err) {
-        if (err) throw err
-      })
-    })
+
+
+  firestore.set = function (key, value, callback) { // set key/value
+    if(!_.isFunction(callback)) {
+      return _.partial(Firestore.set, key, value)
+    }
+
+    Ref.child(key).set(value, callback);
   }
 
-  function del(key) { // clear orchestratr.kv key/value
-    _get(key, function (dataSnapshot) {
-      dataSnapshot.remove(function (err) {
-        if (err) throw err
-      })
-    })
+
+
+  firestore.del = function (key, callback) { // clear key
+    if(!_.isFunction(callback)) {
+      return _.partial(Firestore.del, key)
+    }
+
+    Ref.child(key).remove(callback);
   }
 
-  var firestore = {
-    get: get,
-    put: put,
-    del: del
+
+
+  if (options.token) {
+    var token      = options.token
+    if (options.auth) {
+      var tokenGen = new FirebaseTokenGenerator(options.token)
+      token        = tokenGen.createToken(options.auth)
+    }
+    try {
+      Ref.authWithCustomToken(token, complete)
+    } catch (err) { callback(err) }
+  } else {
+    complete()
   }
-  return firestore
 }
+
 
 
 module.exports = Firestore
