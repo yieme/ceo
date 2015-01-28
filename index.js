@@ -1,41 +1,59 @@
 "use strict";
 
-var scope          = this
-  , logger         = { info: console.log, warn: console.log, error: console.log, fatal: console.log }
-  , Firebase       = require('firebase')
-  , TokenGenerator = require("firebase-token-generator")
-  , Dias           = require('dias')                     // angleman/dias. Detect PaaS details
-  , mergeObjects   = require('./src/merge-objects')
-  , fs             = require('fs')
-  , os             = require('os')
-  , exit           = require('./src/service-exit')
-  , outcome        = require('outcome')
-  , on             = outcome(function(err) { exit(err) })
-  , getvar         = require('./src/getvar')
-  , Firelease      = require('firelease')
-  , Firestore      = require('./src/firestore')
-  , initLogger     = require('./src/service-logger')
-  , config         = getvar('orchestratr') || '{}'
+var scope           = this
+  , convar          = require('convar')
+  , newrelic        = (convar('newrelic')) ? require('newrelic') : false
+  , logger          = { info: console.log, warn: console.log, error: console.log, fatal: console.log }
+  , Firebase        = require('firebase')
+  , firebaseConfig  = convar('firebase', 'firebase config with url is required')
+  , TokenGenerator  = require("firebase-token-generator")
+  , Dias            = require('dias')                     // angleman/dias. Detect PaaS details
+  , exit            = require('./src/service-exit')
+  , firebaseSafeKey = require('./src/firebase-safe-key')
+  , outcome         = require('outcome')
+  , on              = outcome(function(err) { exit(err) })
+  , Firelease       = require('firelease')
+  , Firestore       = require('./src/firestore')
+  , CeoLog          = require('./src/ceo-log')
+  , config          = convar('ceo') || '{}'
 ;
 
-try { config = JSON.parse(config) } catch (e) {}
 
 
 function getServiceId(dias, callback) {
   try {
     var idPack = {
-      uid:  999,  // replace below
-      name: getvar.package.name,
-      ver:  getvar.package.version,
-      env:  getvar.node_env(), // dev, stage, canary, production
-      paas: (dias.os == 'OSX')  ? undefined     : dias.paas,
-      dc:   (dias.aws)          ? dias.aws.zone : (dias.appfog)       ? dias.appfog.center : (dias.os == 'OSX') ? 'local' : undefined,
-      os:   dias.os + '/' + dias.version,
-      box:  getvar('box') || dias.serial,
+      'i':  999,  // who: unique id. service:box_ident_or_serial#:box_process#
+      a:    convar.package.name + '/' + convar.package.version, // who: instance of: service/version
+      on:   convar('box') || dias.serial, // how: box identification
+      dc:   (dias.aws) ? dias.aws.zone : (dias.appfog) ? dias.appfog.center : undefined, // where: data center
+      at:   undefined, // where: [city, [region ]]country or geohash?
+      ll:   undefined, // where: longitude/latitude
+      of:   undefined, // who: member of
+      to:   undefined, // reserved
+      by:   undefined, // who: stakeholder
+      is:   undefined, // reserved
+      it:   undefined, // reserved
+      as:   undefined, // how: language/channel/protocol(s)
+      cmd:  undefined, // what: unknown
+      ttl:  undefined, // when: expected time to live
+      via:  undefined, // how:  channel/protocol
+      /*
+      who:   i: unique id, a: stakeholder class(es), by: event/action-requestor, to: event/action-reply
+      what:  message: log-message, cmd: command-request, it: command-handle
+      where: at: city/region/country, ll: longitude/latitude
+      when:  ??: timestamp, ttl: time-to-live
+      why:   ad: advertisement, level: log-level, motive: code
+      how:   on: device, via: channel/protocol, as: language?
+      */
+      env:  convar.isProduction() ? 'prod' : convar.node_env, // release stage: dev, stage, canary, prod
+      paas: (dias.os == 'OSX') ? undefined : dias.paas, // host service provider
+      os:   dias.os + '/' + dias.version, // host operating system
       glot: 'node/' + dias.node, // polyglot, ie application language
     }
-    idPack.uid = getvar.package.name + ':' + dias.serial + ':' + process.pid
-    idPack.uid = idPack.uid.split('.').join('-')
+
+    // firebase doesn't like '.' in keys
+    idPack.i = firebaseSafeKey(convar.package.name + ':' + dias.serial + ':' + process.pid)
   } catch (err) {
     callback(err)
   }
@@ -45,16 +63,16 @@ function getServiceId(dias, callback) {
 
 
 function initFirebase(servicePack, callback) {
-  var firebase  = new Firebase(getvar('firebase_url', 1))
-  var token     = getvar('firebase_token')
-  , authToken = token
-  if (token) {
-    console.log('box:', servicePack.box)
-    var tokenGenerator = new TokenGenerator(token)
-    , authToken      = tokenGenerator.createToken({
-      uid:   servicePack.box,
-      is:    servicePack.name + '/' + servicePack.version // enables firebase auth based on service and/or version
-    })
+  var firebase  = new Firebase(firebaseConfig.url)
+    , authToken = firebaseConfig.token
+  ;
+  if (firebaseConfig.token) {
+    var tokenGenerator = new TokenGenerator(firebaseConfig.token)
+      , authToken      = tokenGenerator.createToken({
+          uid:   servicePack.i, // unique id
+          is:    servicePack.name + '/' + servicePack.version // enables firebase auth based on service and/or version
+        })
+    ;
     firebase.authWithCustomToken(authToken, on.success(function(authData) {
       callback(null, firebase)
     }))
@@ -73,26 +91,25 @@ function getKeyValueStore(firebaseRef, path, callback) {
 
 
 
-function Orchestratr(callback) {
-  var orchestratr = this
+function CEO(callback) {
+  var ceo = this
   , firebase
   try {
     Dias({uanode: true}, function(dias) {
       getServiceId(dias, on.success(function(servicePack) {
-        var logger = new initLogger(servicePack)
+        var logger = new CeoLog(servicePack, true /* force JSON */)
         exit.init(logger)
-        orchestratr.about = servicePack
-        orchestratr.log   = logger
-        orchestratr.exit  = exit
+        ceo.about = servicePack
+        ceo.log   = logger
+        ceo.exit  = exit
 
         function multiStore(ref, area, key, callback) {
-          getKeyValueStore(ref, key, on.success(function(store) { orchestratr[area] = store }))
+          getKeyValueStore(ref, key, on.success(function(store) { ceo[area] = store }))
         }
 
         initFirebase(servicePack, on.success(function(ref) {
           firebase = ref
-          var uid   = servicePack.uid.split(':')
-          uid
+          var uid   = servicePack.i.split(':')
           var setup = [
             { area: 'public',  key: '_' },
             { area: 'global',  key: '~' }, // all services
@@ -102,8 +119,8 @@ function Orchestratr(callback) {
           for (var i = 0; i < setup.length; i++) {
             multiStore(ref, setup[i].area, setup[i].key, function() {})
           }
-          if (!getvar('DEBUG')) process.on('uncaughtException', function(err) { exit(err) })
-          callback(null, orchestratr)
+          if (!convar('DEBUG')) process.on('uncaughtException', function(err) { exit(err) })
+          callback(null, ceo)
         }))
       }))
     })
@@ -126,4 +143,4 @@ module.exports.catalog  = function () { return getFirebaseRefs('catalog',  [ ['g
 //module.exports.pin   = function pin(event_name, options) {} // creates O.event_name() && O.eventName() // options = { timeout: 0, first: 1, do: remoteService } || function(){} // do: shortcut
 // O.attachWorker.service/global(key, options, worker) -> fireleaseRef
 
-module.exports = Orchestratr
+module.exports = CEO
