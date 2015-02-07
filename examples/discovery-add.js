@@ -7,14 +7,13 @@ var Ceo = require('../index')
 Ceo(function(err, ceo) {
   var json = JSON.stringify(ceo.about)
   console.log(json)
-  var id = ceo.discovery.add()
-  console.log('id:', id)
+  ceo.discovery.add()
   setTimeout(function shutdown(){
     console.log('shutting down')
     ceo.discovery.remove()
     setTimeout(function halt() {
       process.exit(0)
     }, 200)
-  }, 3000)
+  }, 2000)
 //  process.exit(0)
 })
