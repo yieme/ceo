@@ -1,6 +1,6 @@
 {
   "name": "ceo",
-  "version": "1.1.2",
+  "version": "1.1.3",
   "description": "CEO NodeJS client",
   "main": "index.js",
   "scripts": {
@@ -24,19 +24,23 @@
   },
   "homepage": "https://github.com/yieme/ceo",
   "dependencies": {
-    "convar": "^1.1.1",
+    "convar": "^1.1.2",
     "dias": "^0.5.4",
     "exit": "^0.1.2",
-    "firebase": "^2.0.6",
-    "firebase-token-generator": "^2.0.0",
+    "firebase-init": "^1.3.1",
     "firelease": "^0.1.2",
     "i64base": "^0.1.6",
+    "install": "^0.1.8",
+    "ips": "^1.0.4",
     "js-data": "^1.0.0-alpha.5-8",
     "js-data-firebase": "^1.0.0-alpha.1",
     "jsonic": "^0.1.1",
     "lodash": "^2.4.1",
     "newrelic": "^1.14.5",
-    "outcome": "0.0.18"
+    "npm": "^2.5.0",
+    "outcome": "0.0.18",
+    "simple-statistics": "^0.9.0",
+    "statpack": "^1.0.2"
   },
   "devDependencies": {
     "doxx": "^1.2.1",
